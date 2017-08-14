@@ -1,0 +1,62 @@
+// -*- C++ -*-
+
+#include <utility>
+#include <type_traits>
+#include <functional>
+
+#define CONCAT_IMPL(x, y) x##y
+#define CONCAT(x, y) CONCAT_IMPL(x, y)
+
+#ifdef __COUNTER__
+#define ANONYMOUS_VARIABLE(NAME) CONCAT(NAME, __COUNTER__)
+#else
+#define ANONYMOUS_VARIABLE(NAME) CONCAT(NAME, __LINE__)
+#endif
+
+namespace detail {
+    struct scope_guard_on_exit final {};
+
+    template <typename EF>
+    struct scope_guard final {
+        explicit scope_guard(EF exit_fn) noexcept : _exit_fn{std::move(exit_fn)}, _committed{false} {
+
+        }
+
+        scope_guard(scope_guard&& rhs) noexcept : _exit_fn{std::move(rhs._exit_fn)}, _committed{rhs._committed} {
+            rhs._committed = true;
+        }
+
+        ~scope_guard() noexcept {
+            if (!_committed)
+                _exit_fn();
+        }
+
+        scope_guard() = delete;
+        scope_guard(scope_guard const&) = delete;
+        scope_guard& operator =(scope_guard const&) = delete;
+        scope_guard& operator=(scope_guard &&) = delete;
+
+        void commit() noexcept {
+            _committed = true;
+        }
+
+        EF _exit_fn;
+        bool _committed;
+    };
+
+    template <typename Fn>
+    scope_guard<Fn> operator+(scope_guard_on_exit, Fn &&fn) {
+        return scope_guard<Fn>(std::forward<Fn>(fn));
+    }
+}
+
+template <typename Fn>
+auto scope_exit(Fn &&fn) -> ::detail::scope_guard<typename std::decay<Fn>::type>{
+    return ::detail::scope_guard<typename std::decay<Fn>::type>(std::forward<Fn>(fn));
+}
+
+#define SCOPE_EXIT \
+    auto ANONYMOUS_VARIABLE(SCOPE_EXIT_WHATEVER) = ::detail::scope_guard_on_exit{} + [&] () noexcept
+
+#define SCOPE_ON_EXIT(cb) \
+    auto ANONYMOUS_VARIABLE(SCOPE_EXIT_WHATEVER) = scope_exit(cb)
